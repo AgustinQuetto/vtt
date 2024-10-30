@@ -25,9 +25,6 @@ import MonsterCard from "./MonsterCard";
 import CombatManager from "./CombatManager";
 import GameLog from "./GameLog";
 import AttackDialog from "./AttackDialog";
-import SpellcastingDialog from "./SpellcastingDialog";
-import SpellManagement from "./SpellManagement";
-import SpellDamageHandler from "./SpellDamageHandler";
 import { initialGameState } from "../utils/gameState";
 
 const FloatingPanel = ({ title, children, isOpen, onToggle, position }) => {
@@ -114,7 +111,6 @@ const VirtualTabletop = () => {
   const [movedEntities, setMovedEntities] = useState(new Set());
   const [attackedEntities, setAttackedEntities] = useState(new Set());
   const [attackDialogOpen, setAttackDialogOpen] = useState(false);
-  const [spellDialogOpen, setSpellDialogOpen] = useState(false);
 
   // Estado para controlar la visibilidad de los paneles
   const [panels, setPanels] = useState({
@@ -458,7 +454,8 @@ const VirtualTabletop = () => {
 
   const handleAttack = (target, damage) => {
     // Actualizar HP del objetivo
-    const targetType = target.type === "monster" ? "monsters" : "characters";
+    const targetType = target.id.startsWith("M") ? "monsters" : "characters";
+
     setGameState((prev) => ({
       ...prev,
       [targetType]: prev[targetType].map((entity) =>
@@ -494,193 +491,6 @@ const VirtualTabletop = () => {
     const dy = entity1.position.y - entity2.position.y;
     return Math.sqrt(dx * dx + dy * dy) * 1.5; // 1.5 metros por casilla
   }, []);
-
-  const handleCastSpell = (spell, target, spellLevel, failed = false) => {
-    if (!failed && target) {
-      spellDamageHandler.handleSpellEffect(
-        spell,
-        selectedCharacter,
-        target,
-        spellLevel
-      );
-    }
-
-    // Reducir espacios de conjuro disponibles
-    setGameState((prev) => ({
-      ...prev,
-      characters: prev.characters.map((char) =>
-        char.id === selectedCharacter.id
-          ? {
-              ...char,
-              spellsRemaining: {
-                ...char.spellsRemaining,
-                [spellLevel]: (char.spellsRemaining[spellLevel] || 0) - 1,
-              },
-            }
-          : char
-      ),
-    }));
-
-    // Marcar el personaje como que ya actuó
-    setAttackedEntities(
-      (prev) => new Set(prev.add(`character-${selectedCharacter.id}`))
-    );
-  };
-
-  const handleMemorizeSpell = (character, spell) => {
-    setGameState((prev) => ({
-      ...prev,
-      characters: prev.characters.map((char) =>
-        char.id === character.id
-          ? {
-              ...char,
-              memorizedSpells: [...char.memorizedSpells, spell.name],
-            }
-          : char
-      ),
-    }));
-    addToGameLog(`${character.name} memoriza ${spell.name}`, "magic");
-  };
-
-  const handleForgetSpell = (character, spellName) => {
-    setGameState((prev) => ({
-      ...prev,
-      characters: prev.characters.map((char) =>
-        char.id === character.id
-          ? {
-              ...char,
-              memorizedSpells: char.memorizedSpells.filter(
-                (s) => s !== spellName
-              ),
-            }
-          : char
-      ),
-    }));
-    addToGameLog(`${character.name} olvida ${spellName}`, "magic");
-  };
-
-  const handleRestoreSpells = (character) => {
-    const slots =
-      character.class === "Clérigo"
-        ? clericSpellTable[character.level - 1]
-        : mageSpellTable[character.level - 1];
-
-    setGameState((prev) => ({
-      ...prev,
-      characters: prev.characters.map((char) =>
-        char.id === character.id
-          ? {
-              ...char,
-              spellsRemaining: slots.reduce(
-                (acc, slots, index) => ({
-                  ...acc,
-                  [index + 1]: slots,
-                }),
-                {}
-              ),
-            }
-          : char
-      ),
-    }));
-    addToGameLog(
-      `${character.name} restaura todos sus espacios de conjuro`,
-      "magic"
-    );
-  };
-
-  const canCastSpells = useCallback(
-    (characterId) => {
-      // Si no hay combate activo, se puede lanzar conjuros libremente
-      if (!combatActive) return true;
-
-      const character = gameState.characters.find((c) => c.id === characterId);
-      if (!character) return false;
-
-      // Validar que sea el turno del personaje
-      const isCurrentTurn =
-        currentTurn?.id === characterId && currentTurn?.type === "character";
-      if (!isCurrentTurn) return false;
-
-      // Validar que no haya actuado ya
-      const hasActed = attackedEntities.has(`character-${characterId}`);
-      if (hasActed) return false;
-
-      // Validar que sea una clase lanzadora de conjuros
-      const isSpellcaster =
-        character.class === "Clérigo" || character.class === "Hechicero";
-      if (!isSpellcaster) return false;
-
-      // Validar que tenga espacios de conjuro disponibles
-      const hasAvailableSpells = Object.values(
-        character.spellsRemaining || {}
-      ).some((slots) => slots > 0);
-      if (!hasAvailableSpells) return false;
-
-      return true;
-    },
-    [combatActive, currentTurn, attackedEntities, gameState.characters]
-  );
-
-  // Función auxiliar para verificar espacios de conjuro específicos
-  const hasSpellSlots = useCallback((character, spellLevel) => {
-    return (character.spellsRemaining?.[spellLevel] || 0) > 0;
-  }, []);
-
-  // Función para verificar si un conjuro específico puede ser lanzado
-  const canCastSpecificSpell = useCallback(
-    (character, spell) => {
-      if (!character) return false;
-
-      // Validar que el personaje pueda lanzar conjuros en general
-      if (!canCastSpells(character.id)) return false;
-
-      // Validar que tenga el conjuro memorizado o en su libro
-      const isMemorized = character.memorizedSpells?.includes(spell.name);
-      const isInSpellbook = character.spellbook?.includes(spell.name);
-      if (!isMemorized && !isInSpellbook) return false;
-
-      // Validar que tenga espacios de conjuro del nivel apropiado
-      return hasSpellSlots(character, spell.level);
-    },
-    [canCastSpells, hasSpellSlots]
-  );
-
-  // Función para obtener el texto de razón por la que no se puede lanzar
-  const getCannotCastReason = useCallback(
-    (characterId) => {
-      const character = gameState.characters.find((c) => c.id === characterId);
-      if (!character) return "Personaje no encontrado";
-
-      if (combatActive && (!currentTurn || currentTurn.id !== characterId)) {
-        return "No es tu turno";
-      }
-
-      if (attackedEntities.has(`character-${characterId}`)) {
-        return "Ya has actuado en este turno";
-      }
-
-      if (!["Clérigo", "Hechicero"].includes(character.class)) {
-        return "Tu clase no puede lanzar conjuros";
-      }
-
-      if (
-        !Object.values(character.spellsRemaining || {}).some(
-          (slots) => slots > 0
-        )
-      ) {
-        return "No te quedan espacios de conjuro";
-      }
-
-      return "";
-    },
-    [combatActive, currentTurn, attackedEntities, gameState.characters]
-  );
-
-  const spellDamageHandler = SpellDamageHandler({
-    gameState,
-    onUpdateGameState: setGameState,
-    onAddToGameLog: addToGameLog,
-  });
 
   return (
     <TooltipProvider>
@@ -725,19 +535,6 @@ const VirtualTabletop = () => {
           onAttack={handleAttack}
           distanceToTarget={(target) =>
             calculateDistance(selectedCharacter || selectedMonster, target)
-          }
-          addToGameLog={addToGameLog}
-        />
-
-        {console.log(selectedCharacter)}
-        <SpellcastingDialog
-          isOpen={spellDialogOpen}
-          onClose={() => setSpellDialogOpen(false)}
-          caster={selectedCharacter}
-          possibleTargets={getPossibleTargets()}
-          onCastSpell={handleCastSpell}
-          distanceToTarget={(target) =>
-            calculateDistance(selectedCharacter, target)
           }
           addToGameLog={addToGameLog}
         />
@@ -837,21 +634,6 @@ const VirtualTabletop = () => {
             {selectedCharacter && (
               <>
                 <CharacterSheet character={selectedCharacter} />
-                {selectedCharacter?.class === "Clérigo" ||
-                selectedCharacter?.class === "Hechicero" ? (
-                  <SpellManagement
-                    character={selectedCharacter}
-                    onMemorizeSpell={(spell) =>
-                      handleMemorizeSpell(selectedCharacter, spell)
-                    }
-                    onForgetSpell={(spellName) =>
-                      handleForgetSpell(selectedCharacter, spellName)
-                    }
-                    onRestoreSpells={() =>
-                      handleRestoreSpells(selectedCharacter)
-                    }
-                  />
-                ) : null}
               </>
             )}
             {selectedMonster && isDungeonMaster && (
@@ -903,27 +685,6 @@ const VirtualTabletop = () => {
                     : "Mover personaje"}
                 </TooltipContent>
               </Tooltip>
-
-              {(selectedCharacter?.class === "Clérigo" ||
-                selectedCharacter?.class === "Hechicero") && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="default"
-                      onClick={() => setSpellDialogOpen(true)}
-                      disabled={!canCastSpells(selectedCharacter.id)}
-                    >
-                      <Sparkles className="w-4 h-4 mr-2" />
-                      Lanzar Conjuro
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {!canCastSpells(selectedCharacter.id)
-                      ? getCannotCastReason(selectedCharacter.id)
-                      : "Lanzar conjuro"}
-                  </TooltipContent>
-                </Tooltip>
-              )}
 
               {combatActive && (
                 <Tooltip>
