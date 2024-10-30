@@ -1,0 +1,306 @@
+#root {
+  text-align: center;
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+/* styles/leaflet-custom.css */
+.leaflet-container {
+  background: #f3f4f6;
+}
+
+.character-marker,
+.monster-marker {
+  background: transparent;
+  border: none;
+}
+
+.character-marker > div,
+.monster-marker > div {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+
+.character-marker > div:hover {
+  transform: scale(1.1);
+}
+
+.leaflet-grab {
+  cursor: default;
+}
+
+.leaflet-interactive {
+  cursor: pointer;
+}
+
+/* styles/leaflet-custom.css */
+.leaflet-container {
+  background: #000;
+}
+
+.character-marker,
+.monster-marker {
+  background: transparent;
+  border: none;
+}
+
+.character-marker > div,
+.monster-marker > div {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+.character-marker > div:hover {
+  transform: scale(1.1);
+}
+
+.leaflet-grab {
+  cursor: default;
+}
+
+.leaflet-interactive {
+  cursor: pointer;
+}
+
+.move-area {
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 0.2;
+  }
+  100% {
+    opacity: 0.6;
+  }
+}
+
+/* Personalizar controles de zoom */
+.leaflet-control-zoom {
+  border: none !important;
+  margin: 15px !important;
+}
+
+.leaflet-control-zoom a {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  color: #4b5563 !important;
+  border: none !important;
+  width: 30px !important;
+  height: 30px !important;
+  line-height: 30px !important;
+  font-size: 16px !important;
+  border-radius: 6px !important;
+  margin-bottom: 5px !important;
+}
+
+.leaflet-control-zoom a:hover {
+  background-color: white !important;
+  color: #1f2937 !important;
+}
+
+/* styles/leaflet-custom.css */
+.character-group-marker {
+  background: transparent;
+  border: none;
+}
+
+.character-group-marker > div {
+  transform-origin: center bottom;
+  transition: transform 0.2s ease;
+}
+
+.character-group-marker > div:hover {
+  transform: scale(1.1);
+}
+
+.character-group-marker .absolute {
+  transition: all 0.2s ease;
+}
+
+.character-marker,
+.character-group-marker {
+  pointer-events: auto;
+}
+
+.move-area {
+  animation: pulse 2s infinite;
+  pointer-events: none;
+}
+
+.terrain-icon {
+  background: transparent !important;
+  border: none !important;
+  pointer-events: none;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* Añadir tooltip para terrenos especiales */
+.terrain-icon::after {
+  content: attr(data-description);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.terrain-icon:hover::after {
+  opacity: 1;
+}
+
+.character-group-marker,
+.monster-group-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.character-group-marker > div,
+.monster-group-marker > div {
+  transform-origin: center bottom;
+  transition: transform 0.2s ease;
+}
+
+.character-group-marker > div:hover,
+.monster-group-marker > div:hover {
+  transform: scale(1.1);
+}
+
+.distance-marker {
+  background: transparent !important;
+  border: none !important;
+  pointer-events: none !important;
+}
+
+.leaflet-marker-draggable {
+  cursor: move !important;
+}
+
+.character-marker,
+.monster-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.character-marker > div,
+.monster-marker > div {
+  transform-origin: center bottom;
+  transition: transform 0.2s ease;
+}
+
+.character-marker > div:hover,
+.monster-marker > div:hover {
+  transform: scale(1.1);
+}
+
+.distance-marker {
+  background: transparent !important;
+  border: none !important;
+  pointer-events: none !important;
+}
+
+.leaflet-marker-draggable {
+  cursor: move !important;
+}
+
+.leaflet-marker-icon {
+  pointer-events: auto !important;
+}
+
+.leaflet-container .leaflet-marker-pane img {
+  width: 48px !important;
+}
+
+.game-map-image {
+  pointer-events: none;
+}
+
+#map {
+  background: #000;
+}
+
+#map .leaflet-container {
+  background: #000;
+}
+
+/* Ocultar elementos de UI innecesarios */
+.leaflet-control-zoom {
+  display: none;
+}
+
+/* Asegurar que el contenedor mantenga la proporción de la imagen */
+.map-container {
+  position: relative;
+  width: 100%;
+  height: 0;
+  overflow: hidden;
+}
+
+/* Prevenir scroll fuera de los límites en dispositivos táctiles */
+.leaflet-container {
+  -webkit-overflow-scrolling: touch;
+  overflow: hidden;
+}
+
+.z-400 {
+  z-index: 400;
+}
