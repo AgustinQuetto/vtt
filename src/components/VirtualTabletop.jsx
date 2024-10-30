@@ -102,7 +102,7 @@ const VirtualTabletop = () => {
   const [selectedMonster, setSelectedMonster] = useState(null);
   const [movementMode, setMovementMode] = useState(false);
   const [isDungeonMaster] = useState(true);
-  const gridSize = 30;
+  const gridSize = 100;
 
   // Estados de combate
   const [combatActive, setCombatActive] = useState(false);
