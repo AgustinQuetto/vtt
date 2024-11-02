@@ -16,7 +16,9 @@ const LeafletGrid = ({
   onTerrainCheck,
   isDungeonMaster,
   canMove,
+  spellEffectMarkers = [],
 }) => {
+  console.log({ spellEffectMarkers });
   const mapRef = useRef(null);
   const markersLayerRef = useRef(null);
   const moveLineRef = useRef(null);
@@ -85,19 +87,12 @@ const LeafletGrid = ({
       );
 
       // Verificar colisiones con otras entidades
-      const hasCollision =
-        gameState.characters.some(
-          (char) =>
-            char.position.x === toPos.x &&
-            char.position.y === toPos.y &&
-            char.id !== entity.id
-        ) ||
-        gameState.monsters.some(
-          (monster) =>
-            monster.position.x === toPos.x &&
-            monster.position.y === toPos.y &&
-            monster.id !== entity.id
-        );
+      const hasCollision = gameState.characters.some(
+        (char) =>
+          char.position.x === toPos.x &&
+          char.position.y === toPos.y &&
+          char.id !== entity.id
+      );
 
       return withinBounds && withinRange && !hasWall && !hasCollision;
     },
@@ -134,7 +129,7 @@ const LeafletGrid = ({
 
   const createCustomMarker = useCallback(
     (entity, position, isSelected, isDraggable) => {
-      const isMonster = entity.id.startsWith("M");
+      const isMonster = entity.type === "monster";
       const avatarUrl = entity.avatar;
       const markerSize = isMonster ? 40 : 48;
 
@@ -301,11 +296,11 @@ const LeafletGrid = ({
     (marker, entity) => {
       let lastValidPosition = { ...entity.position };
       let dragLayer = null;
-      const isMonster = entity.id.startsWith("M");
+      const isMonster = entity.type === "monster";
+      const entityType = entity.type;
 
       marker.on("dragstart", (e) => {
         console.log("Drag Start:", { entity, lastValidPosition });
-        const entityType = isMonster ? "monster" : "character";
         if (!canMove(entity.id, entityType) && !isDungeonMaster) {
           e.preventDefault();
           return false;
@@ -329,7 +324,6 @@ const LeafletGrid = ({
 
       marker.on("dragend", async (e) => {
         console.log("Drag End Start:", { entity, lastValidPosition });
-        const entityType = isMonster ? "monster" : "character";
         const element = e.target.getElement();
 
         // Obtener la nueva posición en la grilla inmediatamente
@@ -452,6 +446,73 @@ const LeafletGrid = ({
     }, {});
   }, []);
 
+  const renderSpellEffects = useCallback(() => {
+    if (!markersLayerRef.current) return;
+
+    spellEffectMarkers.forEach((effect) => {
+      const position = gridToPixel(
+        mapRef.current,
+        effect.position.x,
+        effect.position.y
+      );
+
+      // Crear el icono del efecto
+      const icon = L.divIcon({
+        className: "spell-effect-marker",
+        html: `
+          <div class="absolute animate-pulse">
+            <div class="relative">
+              ${getEffectIcon(effect.effect)}
+              ${
+                effect.duration?.remaining
+                  ? `
+                <div class="absolute -bottom-4 left-1/2 transform -translate-x-1/2">
+                  <div class="px-2 py-1 bg-black bg-opacity-75 text-white text-xs rounded">
+                    ${effect.duration.remaining}
+                  </div>
+                </div>
+              `
+                  : ""
+              }
+            </div>
+          </div>
+        `,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
+      });
+
+      L.marker(position, { icon, interactive: false }).addTo(
+        markersLayerRef.current
+      );
+    });
+  }, [spellEffectMarkers, gridToPixel]);
+
+  // Función helper para obtener el icono según el tipo de efecto
+  const getEffectIcon = (effectType) => {
+    switch (effectType) {
+      case "buff":
+        return `<div class="w-6 h-6 rounded-full bg-blue-500 bg-opacity-50 flex items-center justify-center">
+            <span class="text-white">↑</span>
+          </div>`;
+      case "debuff":
+        return `<div class="w-6 h-6 rounded-full bg-red-500 bg-opacity-50 flex items-center justify-center">
+            <span class="text-white">↓</span>
+          </div>`;
+      case "healing":
+        return `<div class="w-6 h-6 rounded-full bg-green-500 bg-opacity-50 flex items-center justify-center">
+            <span class="text-white">+</span>
+          </div>`;
+      case "damage":
+        return `<div class="w-6 h-6 rounded-full bg-orange-500 bg-opacity-50 flex items-center justify-center">
+            <span class="text-white">*</span>
+          </div>`;
+      default:
+        return `<div class="w-6 h-6 rounded-full bg-purple-500 bg-opacity-50 flex items-center justify-center">
+            <span class="text-white">✧</span>
+          </div>`;
+    }
+  };
+
   // Inicialización del mapa
   useEffect(() => {
     if (!mapRef.current) {
@@ -543,7 +604,9 @@ const LeafletGrid = ({
 
     // Agrupar personajes y monstruos por posición
     const charactersByPosition = groupEntitiesByPosition(gameState.characters);
-    const monstersByPosition = groupEntitiesByPosition(gameState.monsters);
+    const monstersByPosition = groupEntitiesByPosition(
+      gameState.characters.filter((c) => c.type === "monster")
+    );
 
     // Renderizar grupos de personajes
     Object.entries(charactersByPosition).forEach(([posKey, characters]) => {
@@ -651,6 +714,8 @@ const LeafletGrid = ({
         });
       }
     });
+
+    renderSpellEffects();
   }, [
     gameState,
     selectedCharacter,
@@ -663,6 +728,8 @@ const LeafletGrid = ({
     gridToPixel,
     groupEntitiesByPosition,
     canMove,
+    spellEffectMarkers,
+    renderSpellEffects,
   ]);
 
   useEffect(() => {

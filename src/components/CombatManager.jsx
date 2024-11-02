@@ -30,11 +30,7 @@ const CombatManager = ({
 
   // Función para obtener los datos actualizados de una entidad
   const getUpdatedEntityData = (entity) => {
-    if (entity.type === "character") {
-      return gameState.characters.find((c) => c.id === entity.id) || entity;
-    } else {
-      return gameState.monsters.find((m) => m.id === entity.id) || entity;
-    }
+    return gameState.characters.find((c) => c.id === entity.id) || entity;
   };
 
   // Usar useMemo para crear la lista actualizada de entidades
@@ -43,7 +39,7 @@ const CombatManager = ({
       ...entity,
       ...getUpdatedEntityData(entity),
     }));
-  }, [initiativeOrder, gameState.characters, gameState.monsters]);
+  }, [initiativeOrder, gameState.characters]);
 
   const getEntityStatus = (entity) => {
     const updatedEntity = getUpdatedEntityData(entity);

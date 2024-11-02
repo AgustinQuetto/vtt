@@ -25,7 +25,10 @@ import MonsterCard from "./MonsterCard";
 import CombatManager from "./CombatManager";
 import GameLog from "./GameLog";
 import AttackDialog from "./AttackDialog";
-import { initialGameState } from "../utils/gameState";
+import { initialGameState, applyActiveEffects } from "../utils/gameState";
+import { checkExpiredEffects } from "../systems/effectSystem";
+import SpellDialog from "./SpellDialog";
+import SpellManager from "../systems/spellSystem";
 
 const FloatingPanel = ({ title, children, isOpen, onToggle, position }) => {
   const [isDragging, setIsDragging] = useState(false);
@@ -112,6 +115,16 @@ const VirtualTabletop = () => {
   const [attackedEntities, setAttackedEntities] = useState(new Set());
   const [attackDialogOpen, setAttackDialogOpen] = useState(false);
 
+  // Nuevos estados para hechizos
+  const [spellDialogOpen, setSpellDialogOpen] = useState(false);
+  const [spellEffectMarkers, setSpellEffectMarkers] = useState([]);
+
+  // Inicializar SpellManager
+  const spellManager = new SpellManager(gameState, setGameState);
+
+  // Estados de combate existentes
+  const [actedEntities, setActedEntities] = useState(new Set());
+
   // Estado para controlar la visibilidad de los paneles
   const [panels, setPanels] = useState({
     combat: true,
@@ -177,45 +190,6 @@ const VirtualTabletop = () => {
     [combatActive, currentTurn, movedEntities]
   );
 
-  // Función para iniciar el combate y establecer el orden de iniciativa
-  const startCombat = useCallback(() => {
-    // Combinar personajes y monstruos
-    const allEntities = [
-      ...gameState.characters.map((char) => ({
-        ...char,
-        type: "character",
-        initiative:
-          Math.floor(Math.random() * 20) +
-          1 +
-          Math.floor((char.attributes.DES - 10) / 2),
-      })),
-      ...gameState.monsters.map((monster) => ({
-        ...monster,
-        type: "monster",
-        initiative:
-          Math.floor(Math.random() * 20) +
-          1 +
-          Math.floor((monster.attributes.DES - 10) / 2),
-      })),
-    ];
-
-    // Ordenar por iniciativa
-    const sortedEntities = allEntities.sort(
-      (a, b) => b.initiative - a.initiative
-    );
-    setInitiativeOrder(sortedEntities);
-    setCurrentTurn(sortedEntities[0]);
-    setMovedEntities(new Set());
-    addToGameLog("¡Comienza el combate!");
-
-    // Mostrar orden de iniciativa
-    sortedEntities.forEach((entity, index) => {
-      addToGameLog(
-        `${index + 1}. ${entity.name} - Iniciativa: ${entity.initiative}`
-      );
-    });
-  }, [gameState]);
-
   // Función para pasar al siguiente turno
   const nextTurn = useCallback(() => {
     const currentIndex = initiativeOrder.findIndex(
@@ -227,6 +201,7 @@ const VirtualTabletop = () => {
 
     // Si completamos una ronda, restaurar estados
     if (nextIndex === 0) {
+      handleEndTurn();
       setMovedEntities(new Set());
       setAttackedEntities(new Set());
       addToGameLog("¡Nueva ronda de combate!", "combat");
@@ -249,19 +224,11 @@ const VirtualTabletop = () => {
     const allEntities = [
       ...gameState.characters.map((char) => ({
         ...char,
-        type: "character",
+        type: char.type,
         initiative:
           Math.floor(Math.random() * 20) +
           1 +
           calculateModifier(char.attributes.DES),
-      })),
-      ...gameState.monsters.map((monster) => ({
-        ...monster,
-        type: "monster",
-        initiative:
-          Math.floor(Math.random() * 20) +
-          1 +
-          calculateModifier(monster.attributes.DES),
       })),
     ];
 
@@ -307,6 +274,13 @@ const VirtualTabletop = () => {
   const canAttack = useCallback(
     (entityId, entityType) => {
       if (!combatActive) return true;
+      console.log(
+        currentTurn,
+        entityId,
+        entityType,
+        currentTurn?.id === entityId,
+        currentTurn?.type === entityType
+      );
       const isCurrentTurn =
         currentTurn?.id === entityId && currentTurn?.type === entityType;
       return (
@@ -340,32 +314,6 @@ const VirtualTabletop = () => {
       return true;
     },
     [gameState.characters, addToGameLog, canMove]
-  );
-
-  const handleMonsterMove = useCallback(
-    (monsterId, newPosition) => {
-      if (!canMove(monsterId, "monster") && !isDungeonMaster) {
-        addToGameLog("No puedes mover este monstruo en este turno", "error");
-        return false;
-      }
-
-      const monster = gameState.monsters.find((m) => m.id === monsterId);
-
-      setGameState((prev) => ({
-        ...prev,
-        monsters: prev.monsters.map((m) =>
-          m.id === monsterId ? { ...m, position: newPosition } : m
-        ),
-      }));
-
-      setMovedEntities((prev) => new Set(prev.add(`monster-${monsterId}`)));
-      addToGameLog(
-        `${monster.name} se mueve a la posición (${newPosition.x}, ${newPosition.y})`,
-        "movement"
-      );
-      return true;
-    },
-    [gameState.monsters, addToGameLog, canMove, isDungeonMaster]
   );
 
   const handleTerrainCheck = useCallback(
@@ -454,7 +402,7 @@ const VirtualTabletop = () => {
 
   const handleAttack = (target, damage) => {
     // Actualizar HP del objetivo
-    const targetType = target.id.startsWith("M") ? "monsters" : "characters";
+    const targetType = "characters";
 
     setGameState((prev) => ({
       ...prev,
@@ -479,18 +427,153 @@ const VirtualTabletop = () => {
 
   const getPossibleTargets = useCallback(() => {
     if (selectedCharacter) {
-      return gameState.monsters;
+      return gameState.characters.filter((c) => c.type === "monster");
     } else if (selectedMonster) {
-      return gameState.characters;
+      return gameState.characters.filter((c) => c.type === "character");
     }
     return [];
   }, [selectedCharacter, selectedMonster, gameState]);
 
+  const getPossibleSpellTargets = useCallback(() => {
+    return gameState.characters || [];
+  }, [selectedCharacter, selectedMonster, gameState]);
+
   const calculateDistance = useCallback((entity1, entity2) => {
+    if (!entity1 || !entity2) return 0;
     const dx = entity1.position.x - entity2.position.x;
     const dy = entity1.position.y - entity2.position.y;
     return Math.sqrt(dx * dx + dy * dy) * 1.5; // 1.5 metros por casilla
   }, []);
+
+  // Manejar el lanzamiento de hechizos
+  const handleSpellCast = async (casterId, spellId, target) => {
+    if (!canAct(casterId, "character")) {
+      throw new Error("Este personaje ya ha actuado en este turno");
+    }
+
+    try {
+      const result = await spellManager.castSpell(casterId, spellId, target);
+
+      // Marcar al personaje como que ya actuó
+      setActedEntities((prev) => new Set(prev.add(`character-${casterId}`)));
+
+      // Actualizar efectos visuales si es necesario
+      updateSpellEffects();
+
+      return result;
+    } catch (error) {
+      console.error("Error al lanzar hechizo:", error);
+      throw error;
+    }
+  };
+
+  // Verificar si una entidad puede actuar
+  const canAct = useCallback(
+    (entityId, entityType) => {
+      if (!combatActive) return true;
+      console.log(
+        currentTurn,
+        currentTurn?.id,
+        entityId,
+        entityType,
+        currentTurn?.id === entityId,
+        currentTurn?.type === entityType,
+        actedEntities
+      );
+      const isCurrentTurn =
+        currentTurn?.id === entityId && currentTurn?.type === entityType;
+      return isCurrentTurn && !actedEntities.has(`${entityType}-${entityId}`);
+    },
+    [combatActive, currentTurn, actedEntities]
+  );
+
+  // Actualizar efectos visuales de hechizos
+  const updateSpellEffects = useCallback(() => {
+    const newEffects = [];
+    // Recorrer todos los personajes y monstruos
+    [...gameState.characters].forEach((entity) => {
+      console.log(entity, entity.activeSpellEffects);
+      if (entity.activeSpellEffects) {
+        entity.activeSpellEffects.forEach((effect) => {
+          // Crear marcadores visuales según el tipo de efecto
+          if (effect.visualEffect) {
+            newEffects.push({
+              position: entity.position,
+              effect: effect.visualEffect,
+              duration: effect.duration,
+            });
+          }
+        });
+      }
+    });
+
+    setSpellEffectMarkers(newEffects);
+  }, [gameState]);
+
+  // Procesar el final del turno
+  const handleEndTurn = useCallback(() => {
+    setGameState((prev) => {
+      const newState = { ...prev };
+
+      // Procesar efectos de hechizos activos
+      newState.characters = newState.characters.map((character) =>
+        checkExpiredEffects(character, currentTurn)
+      );
+
+      // Aplicar efectos activos
+      newState.characters = newState.characters.map(applyActiveEffects);
+
+      return newState;
+    });
+
+    // Actualizar efectos visuales
+    updateSpellEffects();
+  }, [currentTurn, updateSpellEffects]);
+
+  const ActionPanel = ({ entity }) => {
+    const isSpellcaster = entity?.spellcaster;
+    const canCastSpells =
+      isSpellcaster &&
+      Object.values(entity.spellsRemaining).some((slots) => slots > 0);
+
+    return (
+      <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-white rounded-lg shadow-lg p-4 flex items-center gap-4 z-400">
+        <span className="font-medium">{entity?.name}</span>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => setMovementMode((prev) => !prev)}
+            variant={movementMode ? "default" : "outline"}
+            disabled={!canAct(entity.id, entity.type)}
+          >
+            {movementMode ? "Cancelar movimiento" : "Mover"}
+          </Button>
+
+          {combatActive && (
+            <>
+              <Button
+                variant="default"
+                disabled={!canAct(entity.id, entity.type)}
+                onClick={() => setAttackDialogOpen(true)}
+              >
+                Atacar
+              </Button>
+
+              {isSpellcaster && (
+                <Button
+                  variant="default"
+                  disabled={!canAct(entity.id, entity.type) || !canCastSpells}
+                  onClick={() => setSpellDialogOpen(true)}
+                >
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Lanzar Hechizo
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <TooltipProvider>
@@ -503,11 +586,12 @@ const VirtualTabletop = () => {
             selectedCharacter={selectedCharacter}
             selectedMonster={selectedMonster}
             onCharacterMove={handleCharacterMove}
-            onMonsterMove={handleMonsterMove}
+            onMonsterMove={handleCharacterMove}
             onTerrainCheck={handleTerrainCheck}
             movementMode={movementMode}
             isDungeonMaster={isDungeonMaster}
             canMove={canMove}
+            spellEffectMarkers={spellEffectMarkers}
           />
         </div>
 
@@ -538,6 +622,23 @@ const VirtualTabletop = () => {
           }
           addToGameLog={addToGameLog}
         />
+
+        {selectedCharacter?.spellcaster && (
+          <SpellDialog
+            isOpen={spellDialogOpen}
+            onClose={() => setSpellDialogOpen(false)}
+            caster={selectedCharacter}
+            possibleTargets={getPossibleSpellTargets()}
+            onCastSpell={handleSpellCast}
+            distanceToTarget={calculateDistance}
+            addToGameLog={addToGameLog}
+            spellManager={spellManager}
+          />
+        )}
+
+        {(selectedCharacter || selectedMonster) && (
+          <ActionPanel entity={selectedCharacter || selectedMonster} />
+        )}
 
         {/* Toolbar flotante */}
         <FloatingToolbar />
@@ -586,48 +687,54 @@ const VirtualTabletop = () => {
           title="Personajes y Monstruos"
           isOpen={panels.characters}
           onToggle={() => togglePanel("characters")}
-          position={{ x: window.innerWidth - 380, y: 100 }}
+          position={{ x: window.innerWidth - 415, y: 550 }}
         >
           <div className="space-y-4">
             <div>
               <h3 className="text-sm font-medium mb-2">Personajes</h3>
-              {gameState.characters.map((character) => (
-                <Button
-                  key={character.id}
-                  onClick={() => handleSelectEntity(character, "character")}
-                  variant={
-                    selectedCharacter?.id === character.id
-                      ? "default"
-                      : "outline"
-                  }
-                  className="w-full justify-start mb-2"
-                >
-                  {character.name} ({character.class})
-                  {character.hp.current <= character.hp.max * 0.3 && (
-                    <span className="ml-2 text-red-500">⚠</span>
-                  )}
-                </Button>
-              ))}
+              {gameState.characters
+                .filter((c) => c.type == "character")
+                .map((character) => (
+                  <Button
+                    key={character.id}
+                    onClick={() => handleSelectEntity(character, "character")}
+                    variant={
+                      selectedCharacter?.id === character.id
+                        ? "default"
+                        : "outline"
+                    }
+                    className="w-full justify-start mb-2"
+                  >
+                    {character.name} ({character.class})
+                    {character.hp.current <= character.hp.max * 0.3 && (
+                      <span className="ml-2 text-red-500">⚠</span>
+                    )}
+                  </Button>
+                ))}
             </div>
 
             {isDungeonMaster && (
               <div>
                 <h3 className="text-sm font-medium mb-2">Monstruos</h3>
-                {gameState.monsters.map((monster) => (
-                  <Button
-                    key={monster.id}
-                    onClick={() => handleSelectEntity(monster, "monster")}
-                    variant={
-                      selectedMonster?.id === monster.id ? "default" : "outline"
-                    }
-                    className="w-full justify-start mb-2"
-                  >
-                    {monster.name}
-                    {monster.hp.current <= monster.hp.max * 0.3 && (
-                      <span className="ml-2 text-yellow-500">⚠</span>
-                    )}
-                  </Button>
-                ))}
+                {gameState.characters
+                  .filter((c) => c.type === "monster")
+                  .map((monster) => (
+                    <Button
+                      key={monster.id}
+                      onClick={() => handleSelectEntity(monster, "monster")}
+                      variant={
+                        selectedMonster?.id === monster.id
+                          ? "default"
+                          : "outline"
+                      }
+                      className="w-full justify-start mb-2"
+                    >
+                      {monster.name}
+                      {monster.hp.current <= monster.hp.max * 0.3 && (
+                        <span className="ml-2 text-yellow-500">⚠</span>
+                      )}
+                    </Button>
+                  ))}
               </div>
             )}
 
@@ -651,72 +758,6 @@ const VirtualTabletop = () => {
         >
           <GameLog logs={gameState.gameLog} />
         </FloatingPanel>
-
-        {/* Panel de entidad seleccionada */}
-        {(selectedCharacter || selectedMonster) && (
-          <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-white rounded-lg shadow-lg p-4 flex items-center gap-4 z-400">
-            <span className="font-medium">
-              {selectedCharacter?.name || selectedMonster?.name}
-            </span>
-            <div className="flex gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    onClick={() => setMovementMode((prev) => !prev)}
-                    variant={movementMode ? "default" : "outline"}
-                    disabled={
-                      (selectedCharacter &&
-                        !canMove(selectedCharacter.id, "character")) ||
-                      (selectedMonster &&
-                        !canMove(selectedMonster.id, "monster") &&
-                        !isDungeonMaster)
-                    }
-                  >
-                    {movementMode ? "Cancelar movimiento" : "Mover"}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {(selectedCharacter &&
-                    !canMove(selectedCharacter.id, "character")) ||
-                  (selectedMonster &&
-                    !canMove(selectedMonster.id, "monster") &&
-                    !isDungeonMaster)
-                    ? "Ya te has movido en este turno"
-                    : "Mover personaje"}
-                </TooltipContent>
-              </Tooltip>
-
-              {combatActive && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="default"
-                      disabled={
-                        (selectedCharacter &&
-                          !canAttack(selectedCharacter.id, "character")) ||
-                        (selectedMonster &&
-                          !canAttack(selectedMonster.id, "monster") &&
-                          !isDungeonMaster)
-                      }
-                      onClick={() => setAttackDialogOpen(true)}
-                    >
-                      Atacar
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {(selectedCharacter &&
-                      !canAttack(selectedCharacter.id, "character")) ||
-                    (selectedMonster &&
-                      !canAttack(selectedMonster.id, "monster") &&
-                      !isDungeonMaster)
-                      ? "Ya has atacado en este turno"
-                      : "Realizar ataque"}
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-          </div>
-        )}
       </div>
     </TooltipProvider>
   );

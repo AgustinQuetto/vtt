@@ -19,9 +19,6 @@ const MapGrid = ({ gameState, gridSize, selectedCharacter, onCellClick }) => {
         const character = gameState.characters.find(
           (c) => c.position.x === x && c.position.y === y
         );
-        const monster = gameState.monsters.find(
-          (m) => m.position.x === x && m.position.y === y
-        );
         const mapElement = gameState.mapElements.find(
           (e) => e.position.x === x && e.position.y === y
         );
