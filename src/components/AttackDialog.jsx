@@ -135,7 +135,7 @@ const AttackDialog = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[500px] z-400">
+      <DialogContent className="sm:max-w-[500px] z-500">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sword className="w-5 h-5" />

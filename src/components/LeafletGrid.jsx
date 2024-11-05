@@ -4,6 +4,13 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { getTerrainColor } from "../utils/leafletUtils";
 import { getAvatarFallback } from "../utils/avatarUtils";
+import {
+  INTERACTION_MODES,
+  isSpellTargetingMode,
+  getModeCursor,
+  MODE_CONFIGS,
+  MODE_DESCRIPTIONS,
+} from "../constans/interactions";
 
 const LeafletGrid = ({
   gameState,
@@ -16,17 +23,30 @@ const LeafletGrid = ({
   onTerrainCheck,
   isDungeonMaster,
   canMove,
+  addToGameLog,
   spellEffectMarkers = [],
+  // Nuevas props para selección de área
+  interactionMode = INTERACTION_MODES.DEFAULT,
+  activeSpell = null,
+  onSpellTargetSelected = null,
+  onCancelSpellTargeting = null,
 }) => {
-  console.log({ spellEffectMarkers });
   const mapRef = useRef(null);
   const markersLayerRef = useRef(null);
   const moveLineRef = useRef(null);
+  const spellTargetingLayerRef = useRef(null);
 
   const IMAGE_WIDTH = 5036;
   const IMAGE_HEIGHT = 5036;
   const CELL_SIZE = IMAGE_WIDTH / gridSize;
   const METERS_PER_CELL = 1.5;
+
+  // Función para limpiar la capa de targeting
+  const clearSpellTargetingLayer = useCallback(() => {
+    if (spellTargetingLayerRef.current) {
+      spellTargetingLayerRef.current.clearLayers();
+    }
+  }, []);
 
   const pixelToGrid = useCallback(
     (pixelX, pixelY) => ({
@@ -513,6 +533,166 @@ const LeafletGrid = ({
     }
   };
 
+  const handleSpellTargetingPreview = useCallback(
+    (e) => {
+      if (!spellTargetingLayerRef.current || !activeSpell || !selectedCharacter)
+        return;
+
+      const point = mapRef.current.project(e.latlng, 0);
+      const gridPos = pixelToGrid(point.x, point.y);
+
+      // Limpiar solo la capa de targeting, no la de marcadores
+      spellTargetingLayerRef.current.clearLayers();
+
+      // Calcular distancia desde el lanzador
+      const casterPos = selectedCharacter.position;
+      const distance = calculateRealDistance(casterPos, gridPos);
+
+      // Verificar si está dentro del rango del hechizo
+      if (distance > activeSpell.range) return;
+
+      const config = MODE_CONFIGS[INTERACTION_MODES.SPELL_TARGETING.AREA];
+
+      // Dibujar área de efecto
+      const targetLatLng = gridToPixel(mapRef.current, gridPos.x, gridPos.y);
+      const radius =
+        (activeSpell.areaOfEffect?.radius || 1.5) *
+        (CELL_SIZE / METERS_PER_CELL);
+
+      // Círculo del área de efecto
+      L.circle(targetLatLng, {
+        radius,
+        color: config.areaColor,
+        fillColor: config.areaColor,
+        fillOpacity: config.areaOpacity,
+        weight: config.lineWidth,
+      }).addTo(spellTargetingLayerRef.current);
+
+      // Línea desde el lanzador
+      const casterLatLng = gridToPixel(
+        mapRef.current,
+        casterPos.x,
+        casterPos.y
+      );
+      L.polyline([casterLatLng, targetLatLng], {
+        color: config.lineColor,
+        weight: config.lineWidth,
+        dashArray: config.lineDash,
+      }).addTo(spellTargetingLayerRef.current);
+
+      // Indicador de rango máximo
+      L.circle(casterLatLng, {
+        radius: activeSpell.range * (CELL_SIZE / METERS_PER_CELL),
+        color: config.rangeIndicatorColor,
+        fillColor: config.rangeIndicatorColor,
+        fillOpacity: config.rangeIndicatorOpacity,
+        weight: 1,
+        dashArray: "5, 5",
+      }).addTo(spellTargetingLayerRef.current);
+
+      // Etiqueta de distancia
+      const midPoint = L.latLng(
+        (casterLatLng.lat + targetLatLng.lat) / 2,
+        (casterLatLng.lng + targetLatLng.lng) / 2
+      );
+
+      L.marker(midPoint, {
+        icon: L.divIcon({
+          className: "distance-marker",
+          html: `<div class="px-2 py-1 bg-black bg-opacity-75 text-white rounded text-sm">
+          ${distance.toFixed(1)}m
+        </div>`,
+          iconSize: [80, 20],
+          iconAnchor: [40, 10],
+        }),
+      }).addTo(spellTargetingLayerRef.current);
+    },
+    [
+      activeSpell,
+      selectedCharacter,
+      gridToPixel,
+      pixelToGrid,
+      calculateRealDistance,
+    ]
+  );
+
+  // Modificar el handleSpellTargeting para manejar mejor la confirmación:
+  const handleSpellTargeting = useCallback(
+    (e) => {
+      if (!spellTargetingLayerRef.current || !activeSpell || !selectedCharacter)
+        return;
+
+      const point = mapRef.current.project(e.latlng, 0);
+      const gridPos = pixelToGrid(point.x, point.y);
+
+      // Calcular distancia desde el lanzador
+      const casterPos = selectedCharacter.position;
+      const distance = calculateRealDistance(casterPos, gridPos);
+
+      // Verificar si está dentro del rango del hechizo
+      if (distance > activeSpell.range) {
+        addToGameLog("Fuera de rango", "warning");
+        return;
+      }
+
+      // Crear una nueva capa para los botones de confirmación
+      const confirmationLayer = L.layerGroup().addTo(mapRef.current);
+
+      // Pausar la previsualización mientras los botones están visibles
+      mapRef.current.off("mousemove", handleSpellTargetingPreview);
+
+      const targetLatLng = gridToPixel(mapRef.current, gridPos.x, gridPos.y);
+      const confirmButton = L.marker(targetLatLng, {
+        icon: L.divIcon({
+          className: "confirm-button",
+          html: `
+          <div class="flex gap-2" style="pointer-events: auto;">
+            <button class="p-2 bg-green-500 hover:bg-green-600 text-white rounded-full shadow-lg confirm-btn">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+            </button>
+            <button class="p-2 bg-red-500 hover:bg-red-600 text-white rounded-full shadow-lg cancel-btn">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>`,
+          iconSize: [80, 40],
+          iconAnchor: [40, 20],
+        }),
+        interactive: true,
+      }).addTo(confirmationLayer);
+
+      const element = confirmButton.getElement();
+      const confirmBtn = element.querySelector(".confirm-btn");
+      const cancelBtn = element.querySelector(".cancel-btn");
+
+      confirmBtn.onclick = () => {
+        confirmationLayer.remove();
+        clearSpellTargetingLayer();
+        onSpellTargetSelected({ ...gridPos, distance });
+      };
+
+      cancelBtn.onclick = () => {
+        confirmationLayer.remove();
+        // Restaurar la previsualización
+        mapRef.current.on("mousemove", handleSpellTargetingPreview);
+        handleSpellTargetingPreview(e);
+      };
+    },
+    [
+      activeSpell,
+      selectedCharacter,
+      gridToPixel,
+      pixelToGrid,
+      calculateRealDistance,
+      onSpellTargetSelected,
+      handleSpellTargetingPreview,
+      clearSpellTargetingLayer,
+    ]
+  );
+
   // Inicialización del mapa
   useEffect(() => {
     if (!mapRef.current) {
@@ -527,8 +707,6 @@ const LeafletGrid = ({
         dragging: !movementMode,
         bounceAtZoomLimits: true, // Evitar el efecto rebote en los límites del zoom
       });
-
-      console.log("map initiated");
 
       // Calcular las coordenadas de los límites
       const southWest = map.unproject([0, IMAGE_HEIGHT], 0);
@@ -552,29 +730,69 @@ const LeafletGrid = ({
       });
 
       markersLayerRef.current = L.layerGroup().addTo(map);
+      spellTargetingLayerRef.current = L.layerGroup().addTo(map);
+      moveLineRef.current = L.layerGroup().addTo(map);
+
+      /*       // Asegurar que la capa de marcadores siempre esté por encima
+      markersLayerRef.current.setZIndex(1000);
+      spellTargetingLayerRef.current.setZIndex(500);
+      moveLineRef.current.setZIndex(500); */
+
       mapRef.current = map;
 
-      // Agregar estilos específicos para el contenedor del mapa
-      const mapContainer = document.getElementById("map");
-      if (mapContainer) {
-        mapContainer.style.position = "relative";
-        mapContainer.style.overflow = "hidden";
-      }
+      return () => {
+        if (mapRef.current) {
+          // Limpiar listeners
+          mapRef.current.off("click", handleSpellTargeting);
+          mapRef.current.off("moveend");
+          mapRef.current.off("zoomend");
+          mapRef.current.remove();
+          mapRef.current = null;
+        }
+      };
     }
+  }, []);
 
-    // Habilitar/deshabilitar el arrastre según el modo de movimiento
-    mapRef.current.dragging[movementMode ? "disable" : "enable"]();
+  // Inicialización del mapa
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    mapRef.current.dragging[
+      interactionMode === INTERACTION_MODES.DEFAULT ? "enable" : "disable"
+    ]();
+
+    // Limpiar eventos anteriores
+    mapRef.current.off("click", handleSpellTargeting);
+    mapRef.current.off("mousemove", handleSpellTargetingPreview);
+
+    // Limpiar la capa de targeting cuando cambia el modo
+    clearSpellTargetingLayer();
+
+    // Configurar eventos según el modo
+    if (interactionMode === INTERACTION_MODES.SPELL_TARGETING.AREA) {
+      mapRef.current.on("click", handleSpellTargeting);
+      mapRef.current.on("mousemove", handleSpellTargetingPreview);
+    }
 
     return () => {
       if (mapRef.current) {
-        // Limpiar listeners
-        mapRef.current.off("moveend");
-        mapRef.current.off("zoomend");
-        mapRef.current.remove();
-        mapRef.current = null;
+        mapRef.current.off("click", handleSpellTargeting);
+        mapRef.current.off("mousemove", handleSpellTargetingPreview);
       }
     };
-  }, []);
+  }, [
+    interactionMode,
+    handleSpellTargeting,
+    handleSpellTargetingPreview,
+    clearSpellTargetingLayer,
+  ]);
+
+  // Limpiar la capa de targeting cuando cambie el hechizo activo
+  /*   useEffect(() => {
+    if (!activeSpell) {
+      spellTargetingLayerRef.current.clearLayers();
+    }
+  }, [activeSpell]); */
 
   // Actualizar marcadores y elementos del mapa
   useEffect(() => {
@@ -739,11 +957,25 @@ const LeafletGrid = ({
     mapRef.current.dragging[movementMode ? "disable" : "enable"]();
   }, [movementMode]);
 
+  useEffect(() => {
+    if (!activeSpell) {
+      clearSpellTargetingLayer();
+    }
+  }, [activeSpell, clearSpellTargetingLayer]);
+
+  console.log(interactionMode);
   return (
     <div
       id="map"
       className="w-full h-full overflow-hidden"
-      style={{ cursor: movementMode ? "grab" : "default" }}
+      style={{
+        cursor:
+          interactionMode === INTERACTION_MODES.SPELL_TARGETING
+            ? "crosshair"
+            : movementMode
+            ? "grab"
+            : "default",
+      }}
     />
   );
 };

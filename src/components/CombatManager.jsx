@@ -59,7 +59,7 @@ const CombatManager = ({
 
   if (!initiativeOrder.length) {
     return (
-      <Card className="fixed top-4 right-4 w-64 z-400">
+      <Card className="fixed top-4 right-4 w-64 z-500">
         <CardContent className="p-4">
           <Button className="w-full" onClick={onStartCombat} variant="default">
             <Sword className="w-4 h-4 mr-2" />
@@ -74,7 +74,7 @@ const CombatManager = ({
     <Card
       className={`fixed top-4 right-4 ${
         isExpanded ? "w-80" : "w-64"
-      } transition-all duration-300 z-400`}
+      } transition-all duration-300 z-500`}
     >
       <CardContent className="p-4">
         <div className="flex items-center justify-between mb-4">

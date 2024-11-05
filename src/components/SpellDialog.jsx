@@ -21,6 +21,7 @@ const SpellDialog = ({
   distanceToTarget,
   addToGameLog,
   spellManager,
+  onAreaTargeting,
 }) => {
   const [selectedSpell, setSelectedSpell] = useState(null);
   const [selectedTarget, setSelectedTarget] = useState(null);
@@ -86,9 +87,18 @@ const SpellDialog = ({
     }
   };
 
+  const handleSpellSelect = (spell) => {
+    setSelectedSpell(spell);
+    console.log(spell, TARGET_TYPES.AREA);
+    if (spell.targetType === TARGET_TYPES.AREA) {
+      onAreaTargeting(spell);
+      handleClose();
+    }
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[600px] z-400">
+      <DialogContent className="sm:max-w-[600px] z-500">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="w-5 h-5" />
@@ -116,13 +126,15 @@ const SpellDialog = ({
                           selectedSpell?.id === spell.id ? "default" : "outline"
                         }
                         className="justify-start"
-                        onClick={() => setSelectedSpell(spell)}
+                        onClick={() => handleSpellSelect(spell)}
                       >
                         <div className="mr-2">{spell.icon}</div>
                         <div className="flex flex-col items-start">
                           <span>{spell.name}</span>
                           <span className="text-xs text-muted-foreground">
                             Nivel {spell.level} - Alcance {spell.range}m
+                            {spell.targetType === TARGET_TYPES.AREA &&
+                              " - Área"}
                           </span>
                         </div>
                       </Button>

@@ -23,12 +23,20 @@ import LeafletGrid from "./LeafletGrid";
 import CharacterSheet from "./CharacterSheet";
 import MonsterCard from "./MonsterCard";
 import CombatManager from "./CombatManager";
+import CharacterSelector from "./CharacterSelector";
 import GameLog from "./GameLog";
 import AttackDialog from "./AttackDialog";
 import { initialGameState, applyActiveEffects } from "../utils/gameState";
 import { checkExpiredEffects } from "../systems/effectSystem";
 import SpellDialog from "./SpellDialog";
 import SpellManager from "../systems/spellSystem";
+import {
+  INTERACTION_MODES,
+  isSpellTargetingMode,
+  getModeCursor,
+  MODE_CONFIGS,
+  MODE_DESCRIPTIONS,
+} from "../constans/interactions";
 
 const FloatingPanel = ({ title, children, isOpen, onToggle, position }) => {
   const [isDragging, setIsDragging] = useState(false);
@@ -71,7 +79,7 @@ const FloatingPanel = ({ title, children, isOpen, onToggle, position }) => {
 
   return (
     <Card
-      className="absolute shadow-lg min-w-[300px] max-w-[400px] z-400"
+      className="absolute shadow-lg min-w-[300px] max-w-[400px] z-500"
       style={{
         left: pos.x,
         top: pos.y,
@@ -118,6 +126,13 @@ const VirtualTabletop = () => {
   // Nuevos estados para hechizos
   const [spellDialogOpen, setSpellDialogOpen] = useState(false);
   const [spellEffectMarkers, setSpellEffectMarkers] = useState([]);
+  const [activeSpell, setActiveSpell] = useState(null);
+
+  //Interactions
+  const [interactionMode, setInteractionMode] = useState(
+    INTERACTION_MODES.DEFAULT
+  );
+  const modeDescription = MODE_DESCRIPTIONS[interactionMode];
 
   // Inicializar SpellManager
   const spellManager = new SpellManager(gameState, setGameState);
@@ -155,7 +170,7 @@ const VirtualTabletop = () => {
 
   // Toolbar flotante para mostrar/ocultar paneles
   const FloatingToolbar = () => (
-    <div className="fixed top-4 left-4 z-400 bg-white rounded-lg shadow-lg p-2 flex gap-2">
+    <div className="fixed top-4 left-5 z-500 bg-white rounded-lg shadow-lg p-2 flex gap-2">
       {/* <Button
         variant={panels.combat ? "default" : "outline"}
         size="sm"
@@ -537,7 +552,7 @@ const VirtualTabletop = () => {
       Object.values(entity.spellsRemaining).some((slots) => slots > 0);
 
     return (
-      <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-white rounded-lg shadow-lg p-4 flex items-center gap-4 z-400">
+      <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-white rounded-lg shadow-lg p-4 flex items-center gap-4 z-500">
         <span className="font-medium">{entity?.name}</span>
         <div className="flex gap-2">
           <Button
@@ -575,23 +590,64 @@ const VirtualTabletop = () => {
     );
   };
 
+  const handleAreaTargeting = (spell) => {
+    setActiveSpell(spell);
+    setInteractionMode(INTERACTION_MODES.SPELL_TARGETING.AREA); // Asegúrate de usar .AREA
+  };
+
+  const handleSpellTargetSelected = async (position) => {
+    if (!activeSpell || !selectedCharacter) return;
+
+    try {
+      const result = await handleSpellCast(
+        selectedCharacter.id,
+        activeSpell.id,
+        {
+          position,
+          isArea: true,
+        }
+      );
+
+      addToGameLog(result, "spell");
+    } catch (error) {
+      addToGameLog(
+        `Error al lanzar ${activeSpell.name}: ${error.message}`,
+        "error"
+      );
+    } finally {
+      setActiveSpell(null);
+      console.log("SET FALSE ACTIVE SPELL");
+      setInteractionMode(INTERACTION_MODES.DEFAULT);
+    }
+  };
+
+  console.log("SPELL", activeSpell);
   return (
     <TooltipProvider>
       <div className="w-screen h-screen relative overflow-hidden">
         {/* Mapa a pantalla completa */}
         <div className="w-full h-full">
+          <div className="z-500 w-fit absolute top-4 m-auto left-0 right-0 bg-white rounded-lg shadow p-2">
+            {modeDescription}
+          </div>
           <LeafletGrid
             gameState={gameState}
             gridSize={gridSize}
             selectedCharacter={selectedCharacter}
             selectedMonster={selectedMonster}
             onCharacterMove={handleCharacterMove}
-            onMonsterMove={handleCharacterMove}
-            onTerrainCheck={handleTerrainCheck}
             movementMode={movementMode}
             isDungeonMaster={isDungeonMaster}
             canMove={canMove}
             spellEffectMarkers={spellEffectMarkers}
+            interactionMode={interactionMode}
+            activeSpell={activeSpell}
+            onSpellTargetSelected={handleSpellTargetSelected}
+            onCancelSpellTargeting={() => {
+              setActiveSpell(null);
+              setInteractionMode(INTERACTION_MODES.DEFAULT);
+            }}
+            addToGameLog={addToGameLog}
           />
         </div>
 
@@ -633,6 +689,7 @@ const VirtualTabletop = () => {
             distanceToTarget={calculateDistance}
             addToGameLog={addToGameLog}
             spellManager={spellManager}
+            onAreaTargeting={handleAreaTargeting}
           />
         )}
 
@@ -687,66 +744,23 @@ const VirtualTabletop = () => {
           title="Personajes y Monstruos"
           isOpen={panels.characters}
           onToggle={() => togglePanel("characters")}
-          position={{ x: window.innerWidth - 415, y: 550 }}
+          position={{ x: 20, y: 90 }}
         >
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-sm font-medium mb-2">Personajes</h3>
-              {gameState.characters
-                .filter((c) => c.type == "character")
-                .map((character) => (
-                  <Button
-                    key={character.id}
-                    onClick={() => handleSelectEntity(character, "character")}
-                    variant={
-                      selectedCharacter?.id === character.id
-                        ? "default"
-                        : "outline"
-                    }
-                    className="w-full justify-start mb-2"
-                  >
-                    {character.name} ({character.class})
-                    {character.hp.current <= character.hp.max * 0.3 && (
-                      <span className="ml-2 text-red-500">⚠</span>
-                    )}
-                  </Button>
-                ))}
-            </div>
-
-            {isDungeonMaster && (
-              <div>
-                <h3 className="text-sm font-medium mb-2">Monstruos</h3>
-                {gameState.characters
-                  .filter((c) => c.type === "monster")
-                  .map((monster) => (
-                    <Button
-                      key={monster.id}
-                      onClick={() => handleSelectEntity(monster, "monster")}
-                      variant={
-                        selectedMonster?.id === monster.id
-                          ? "default"
-                          : "outline"
-                      }
-                      className="w-full justify-start mb-2"
-                    >
-                      {monster.name}
-                      {monster.hp.current <= monster.hp.max * 0.3 && (
-                        <span className="ml-2 text-yellow-500">⚠</span>
-                      )}
-                    </Button>
-                  ))}
-              </div>
-            )}
-
-            {selectedCharacter && (
-              <>
-                <CharacterSheet character={selectedCharacter} />
-              </>
-            )}
-            {selectedMonster && isDungeonMaster && (
-              <MonsterCard monster={selectedMonster} />
-            )}
-          </div>
+          <CharacterSelector
+            characters={gameState.characters}
+            selectedCharacter={selectedCharacter}
+            selectedMonster={selectedMonster}
+            onSelectCharacter={(character) =>
+              handleSelectEntity(character, "character")
+            }
+            onSelectMonster={(monster) =>
+              handleSelectEntity(monster, "monster")
+            }
+            isDungeonMaster={isDungeonMaster}
+          />
+          {(selectedCharacter || selectedMonster) && (
+            <CharacterSheet entity={selectedCharacter || selectedMonster} />
+          )}
         </FloatingPanel>
 
         {/* Panel de registro */}
